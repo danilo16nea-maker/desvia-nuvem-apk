@@ -1,0 +1,26 @@
+{
+  "name": "Desvia, Nuvem!",
+  "short_name": "Desvia, Nuve",
+  "description": "Toque para voar com a nuvem e escapar dos portais no céu.",
+  "lang": "pt-BR",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#173F5F",
+  "theme_color": "#173F5F",
+  "icons": [
+    {
+      "src": "icone-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icone-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
