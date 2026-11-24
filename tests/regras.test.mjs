@@ -19,6 +19,32 @@ test('lutador inicializa vida, éter, posição e lado corretamente', () => {
   assert.equal(b.facing, -1); assert.equal(b.id, 'brasa');
 });
 
+test('pulo usa impulso e sobe em passos suaves, sem teletransportar o lutador', () => {
+  const inicio = Regras.iniciarPulo(Regras.lutador('sol', 'p1'));
+  const primeiro = Regras.atualizarPulo(inicio, 1 / 60);
+  assert.equal(inicio.y, 0);
+  assert.ok(primeiro.y > 0 && primeiro.y < 20);
+  assert.equal(primeiro.noAr, true);
+});
+
+test('pulo atinge um arco e aterrissa com velocidade zerada', () => {
+  let lutador = Regras.iniciarPulo(Regras.lutador('sol', 'p1'));
+  let pico = 0;
+  for (let i = 0; i < 60 && lutador.noAr; i++) {
+    lutador = Regras.atualizarPulo(lutador, 1 / 60);
+    pico = Math.max(pico, lutador.y);
+  }
+  assert.ok(pico > 100);
+  assert.equal(lutador.y, 0);
+  assert.equal(lutador.vy, 0);
+  assert.equal(lutador.noAr, false);
+});
+
+test('não inicia outro pulo enquanto ainda está no ar', () => {
+  const noAr = Regras.iniciarPulo(Regras.lutador('sol', 'p1'));
+  assert.equal(Regras.iniciarPulo(noAr), noAr);
+});
+
 test('ataque rápido causa dano e recarrega um pouco do éter', () => {
   const a = Regras.lutador('sol', 'p1'), b = Regras.lutador('umbra', 'p2'); b.x = 490;
   const golpe = Regras.golpeRapido(a, b);
@@ -31,6 +57,7 @@ test('defesa reduz o dano e não tira vida abaixo de zero', () => {
   const golpe = Regras.dano(a, b, 15);
   assert.equal(golpe.bloqueado, true); assert.equal(golpe.defensor.vida, 0);
   assert.equal(golpe.causado, 3);
+  assert.equal(golpe.defensor.recuo, 55);
 });
 
 test('golpe fora de alcance não causa dano', () => {

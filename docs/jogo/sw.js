@@ -1,5 +1,5 @@
 // Service worker: tenta sempre a versão nova pela internet; sem internet, usa a cópia guardada.
-const CACHE = 'jogo';
+const CACHE = 'ecos-eter-arena-v4';
 const ARQUIVOS = [
   './', './index.html', './estilo.css', './placar.css', './config.js', './placar.js',
   './placar-ui.js', './regras.js', './jogo.js', './pwa.js', './manifest.webmanifest',

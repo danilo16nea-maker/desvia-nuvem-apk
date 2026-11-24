@@ -60,6 +60,7 @@
   function mostrarVista(nome) {
     vista = nomesVistas.includes(nome) ? nome : 'inicio'; modo = 'menu';
     $('painel-placar').hidden = false;
+    document.querySelector('.footer').hidden = false;
     for (const key of nomesVistas) $(`view-${key}`).hidden = key !== vista;
     $('result-screen').hidden = true; $('fight-hud').hidden = true; $('combat-controls').hidden = true; $('arena-caption').hidden = true;
     document.querySelectorAll('.nav-button').forEach((b) => b.classList.toggle('active', b.dataset.view === vista));
@@ -72,6 +73,7 @@
     $('p1-name').textContent = p1.nome.toLocaleUpperCase('pt-BR'); $('p2-name').textContent = p2.nome.toLocaleUpperCase('pt-BR');
     $('result-screen').hidden = true; for (const key of nomesVistas) $(`view-${key}`).hidden = true;
     $('painel-placar').hidden = true;
+    document.querySelector('.footer').hidden = true;
     $('fight-hud').hidden = false; $('combat-controls').hidden = false; $('arena-caption').hidden = false;
     $('arena-message').textContent = treino ? 'TREINO — PRATIQUE SEUS GOLPES' : 'ROUND 1 — LUTEM!';
     atualizarHUD();
@@ -90,6 +92,19 @@
       particulas.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, tempo: .35 + Math.random() * .4, max: .75, cor, r: 2 + Math.random() * 5 });
     }
   }
+  function pulsoGolpe(f) {
+    if (!['quick', 'heavy', 'special'].includes(f.animacao)) return 0;
+    const fase = f.animacaoDuracao ? 1 - R.clamp(f.recuperacao / f.animacaoDuracao, 0, 1) : 1;
+    if (fase < .16) return -.22 * fase / .16;
+    if (fase < .52) return (fase - .16) / .36;
+    if (fase < .82) return 1 - (fase - .52) / .3 * .7;
+    return .3 * (1 - (fase - .82) / .18);
+  }
+  function pular() {
+    if (!['luta', 'treino'].includes(modo) || p1.noAr || p1.atordoado > 0 || p1.recuperacao > 0 || p1.y > 0) return;
+    p1 = R.iniciarPulo(p1); p1.invulneravel = .12;
+    efeito(p1.x, FLOOR - 8, p1.cor, 8);
+  }
   function atacar(tipo) {
     if (!['luta', 'treino'].includes(modo) || p1.recuperacao > 0 || p1.atordoado > 0) return;
     p1.recuperacao = tipo === 'quick' ? .31 : tipo === 'heavy' ? .56 : .78;
@@ -103,7 +118,7 @@
     if (resultado.acertou) {
       const cor = tipo === 'special' ? p1.cor : '#fff0c0';
       efeito(p2.x, FLOOR - 100, cor, tipo === 'special' ? 34 : 14); shake = tipo === 'special' ? .26 : .1;
-      mensagem(resultado.bloqueado ? 'BLOQUEADO' : `-${resultado.causado}`, p2.x, FLOOR - 185, resultado.bloqueado ? '#8ed5ff' : cor);
+      mensagem(resultado.bloqueado ? 'BLOQUEADO' : `-${resultado.causado}`, p2.x, FLOOR - 185, resultado.bloqueado ? '#e7d6ba' : cor);
     } else mensagem(resultado.mensagem, p1.x, FLOOR - 175, '#fff');
     if (tipo === 'special' && resultado.acertou) mensagem(`${p1.poder.toLocaleUpperCase('pt-BR')}!`, p1.x, FLOOR - 230, p1.cor);
     checarFim(); atualizarHUD();
@@ -112,6 +127,7 @@
     for (const f of [p1, p2]) {
       f.recuperacao = Math.max(0, f.recuperacao - dt); f.atordoado = Math.max(0, f.atordoado - dt);
       f.invulneravel = Math.max(0, f.invulneravel - dt); f.flash = Math.max(0, f.flash - dt);
+      f.pouso = Math.max(0, (f.pouso || 0) - dt);
       f.facing = f === p1 ? (p1.x <= p2.x ? 1 : -1) : (p2.x <= p1.x ? 1 : -1);
       f.guarda = f === p1 ? toque.guard || teclas.has('ShiftLeft') || teclas.has('ShiftRight') : false;
       if (f.guarda && f.atordoado <= 0 && f.recuperacao <= 0) f.animacao = 'block';
@@ -138,9 +154,12 @@
     } else if (p2.recuperacao <= 0 && modo === 'treino') p2.animacao = 'idle';
     p1.x = R.clamp(p1.x, 90, W - 110); p2.x = R.clamp(p2.x, 90, W - 110);
     if (p2.x - p1.x < 95) { const mid = (p1.x + p2.x) / 2; p1.x = mid - 48; p2.x = mid + 48; }
-    for (const f of [p1, p2]) { f.etero = R.clamp(f.etero + (modo === 'treino' ? 15 : 2.2) * dt, 0, 100); f.y = Math.max(0, f.y - 390 * dt); }
-    if (teclas.has('Space') && !p1.noAr && p1.atordoado <= 0) { p1.noAr = true; p1.y = 115; p1.invulneravel = .2; }
-    if (!teclas.has('Space') && p1.noAr) p1.noAr = false;
+    for (const f of [p1, p2]) {
+      f.etero = R.clamp(f.etero + (modo === 'treino' ? 15 : 2.2) * dt, 0, 100);
+      if (f.recuo) { f.x += f.recuo * dt; f.recuo *= Math.exp(-11 * dt); if (Math.abs(f.recuo) < 8) f.recuo = 0; }
+    }
+    p1 = R.atualizarPulo(p1, dt);
+    if (p1.y > 0 && p1.recuperacao <= 0 && !p1.guarda && p1.atordoado <= 0) p1.animacao = 'jump';
     if (modo === 'luta') { round = Math.max(0, round - dt); if (round === 0) fimPorTempo(); }
     for (const part of particulas) { part.x += part.vx * dt; part.y += part.vy * dt; part.vy += 250 * dt; part.tempo -= dt; }
     particulas = particulas.filter((p) => p.tempo > 0);
@@ -158,7 +177,7 @@
     else if (tipo === 'heavy') resultado = R.golpeForte(p2, p1);
     else resultado = R.golpeRapido(p2, p1);
     p2 = resultado.atacante; p1 = resultado.defensor;
-    if (resultado.acertou) { efeito(p1.x, FLOOR - 100, tipo === 'special' ? p2.cor : '#fff0c0', tipo === 'special' ? 30 : 12); mensagem(resultado.bloqueado ? 'DEFESA!' : `-${resultado.causado}`, p1.x, FLOOR - 180, resultado.bloqueado ? '#8ed5ff' : p2.cor); }
+    if (resultado.acertou) { efeito(p1.x, FLOOR - 100, tipo === 'special' ? p2.cor : '#fff0c0', tipo === 'special' ? 30 : 12); mensagem(resultado.bloqueado ? 'DEFESA!' : `-${resultado.causado}`, p1.x, FLOOR - 180, resultado.bloqueado ? '#e7d6ba' : p2.cor); }
     else if (tipo === 'special') mensagem(resultado.mensagem, p2.x, FLOOR - 170, p2.cor);
     checarFim(); atualizarHUD();
   }
@@ -199,12 +218,12 @@
     const ativo = ['quick', 'heavy', 'special'].includes(f.animacao);
     const defesa = f.guarda || f.animacao === 'block';
     const balanco = Math.sin(agora / (defesa ? 80 : 190)) * (defesa ? 2 : 5);
-    const empurrao = ativo ? Math.sin(Math.PI * fase) * (f.animacao === 'heavy' ? 24 : f.animacao === 'special' ? 14 : 18) : 0;
+    const empurrao = pulsoGolpe(f) * (f.animacao === 'heavy' ? 24 : f.animacao === 'special' ? 14 : 18);
     const x = f.x + f.facing * (naFrente ? 78 + empurrao : -58);
     const y = FLOOR - f.y - 70 + balanco;
     ctx.save(); ctx.translate(x, y); ctx.scale(f.facing, 1);
     ctx.globalAlpha = naFrente ? .88 : .53;
-    ctx.shadowColor = f.cor; ctx.shadowBlur = naFrente ? 26 : 16;
+    ctx.shadowColor = f.cor; ctx.shadowBlur = naFrente ? (defesa ? 0 : 22) : 10;
     // Halo e silhueta espiritual própria, com braços animados conforme a ação.
     ctx.strokeStyle = f.cor; ctx.lineWidth = naFrente ? 4 : 2;
     ctx.beginPath(); ctx.ellipse(0, -39, 48 + Math.sin(agora / 90) * 3, 71, Math.sin(agora / 700) * .05, 0, Math.PI * 2); ctx.stroke();
@@ -213,15 +232,15 @@
     ctx.fillStyle = '#f2eaff'; ctx.beginPath(); ctx.ellipse(0, -111, 20, 22, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = f.cor; ctx.beginPath(); ctx.moveTo(-21, -112); ctx.lineTo(-16, -133); ctx.lineTo(14, -134); ctx.lineTo(22, -111); ctx.closePath(); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.fillRect(5, -116, 5, 3); ctx.fillRect(-11, -116, 5, 3);
-    ctx.strokeStyle = f.cor; ctx.lineWidth = 13; ctx.lineCap = 'round';
+    ctx.strokeStyle = defesa ? '#d9c7a3' : f.cor; ctx.lineWidth = 13; ctx.lineCap = 'round';
     if (defesa) {
       const pulso = 1 + Math.sin(agora / 90) * .09;
-      ctx.save(); ctx.scale(pulso, pulso); ctx.strokeStyle = '#a9e9ff'; ctx.lineWidth = 11;
+      ctx.save(); ctx.scale(pulso, pulso); ctx.strokeStyle = '#d9c7a3'; ctx.lineWidth = 6;
       ctx.beginPath(); ctx.moveTo(-25, -83); ctx.lineTo(5, -61); ctx.lineTo(29, -91); ctx.stroke();
       ctx.beginPath(); ctx.arc(31, -67, 48, -1.55, 1.35); ctx.stroke(); ctx.restore();
       ctx.strokeStyle = f.cor; ctx.lineWidth = 13; ctx.beginPath(); ctx.moveTo(-23, -83); ctx.lineTo(6, -66); ctx.stroke();
     } else if (ativo) {
-      const alcance = (f.animacao === 'heavy' ? 83 : f.animacao === 'special' ? 64 : 70) * Math.sin(Math.PI * fase);
+      const alcance = (f.animacao === 'heavy' ? 83 : f.animacao === 'special' ? 64 : 70) * Math.max(0, pulsoGolpe(f));
       ctx.beginPath(); ctx.moveTo(23, -82); ctx.lineTo(42 + alcance * .42, -79); ctx.lineTo(60 + alcance, -76); ctx.stroke();
       if (fase > .12 && fase < .88) { ctx.globalAlpha *= .55; ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(66 + alcance, -76, 31, -.9, .75); ctx.stroke(); }
     } else {
@@ -234,24 +253,31 @@
     const ativo = ['quick', 'heavy', 'special'].includes(f.animacao);
     const defendendo = f.guarda || f.animacao === 'block';
     const naFrente = ativo || defendendo;
-    const fase = f.animacaoDuracao ? 1 - R.clamp(f.recuperacao / f.animacaoDuracao, 0, 1) : 0;
-    const impacto = ativo ? Math.sin(Math.PI * fase) : 0;
+    const impacto = pulsoGolpe(f);
     const x = f.x + f.facing * impacto * (f.animacao === 'heavy' ? 31 : 20);
     const base = FLOOR - f.y;
     if (!naFrente) manifestacao(f, agora, false);
     const andando = f.animacao === 'walk' ? Math.sin(agora / 85 + x) * 9 : 0;
     ctx.save(); ctx.translate(x, base); ctx.scale(f.facing, 1);
-    ctx.globalAlpha = .48; ctx.fillStyle = '#05050a'; ctx.beginPath(); ctx.ellipse(-f.facing * impacto * 18, 0, 52, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
-    ctx.fillStyle = f.flash > 0 ? '#fff' : f.cor; ctx.shadowColor = f.cor; ctx.shadowBlur = f.animacao === 'special' ? 28 : 9;
-    ctx.save(); ctx.translate(0, -42); ctx.rotate(andando / 100 - impacto * .16); retangulo(-24, -3, 20, 48, 8); ctx.fill(); ctx.restore();
-    ctx.save(); ctx.translate(0, -42); ctx.rotate(-andando / 100 + impacto * .12); retangulo(5, -3, 20, 48, 8); ctx.fill(); ctx.restore();
+    const squash = f.pouso > 0 ? Math.sin(Math.PI * (1 - f.pouso / .18)) * .12 : 0;
+    ctx.scale(1 + squash, 1 - squash);
+    const salto = f.y > 0 ? R.clamp(f.vy / 900, -1, 1) : 0;
+    ctx.rotate(f.y > 0 ? -salto * .07 : impacto * (f.animacao === 'heavy' ? -.1 : -.055));
+    ctx.globalAlpha = .4 * (1 - R.clamp(f.y / 220, 0, .75)); ctx.fillStyle = '#05050a'; ctx.beginPath(); ctx.ellipse(-f.facing * impacto * 18, 0, 52 - f.y * .12, 12 - f.y * .015, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+    ctx.fillStyle = f.flash > 0 ? '#fff' : f.cor; ctx.shadowColor = f.cor; ctx.shadowBlur = defendendo ? 0 : f.animacao === 'special' ? 28 : 9;
+    const joelho = f.y > 0 ? R.clamp(f.y / 170, 0, .48) : 0;
+    ctx.save(); ctx.translate(0, -42); ctx.rotate(andando / 100 - impacto * .16 - joelho); retangulo(-24, -3, 20, 48, 8); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.translate(0, -42); ctx.rotate(-andando / 100 + impacto * .12 + joelho); retangulo(5, -3, 20, 48, 8); ctx.fill(); ctx.restore();
     ctx.fillStyle = f.flash > 0 ? '#fff' : f.cor; retangulo(-31, -112, 62, 76, 15); ctx.fill();
     ctx.fillStyle = '#211a2d'; retangulo(-20, -101, 40, 54, 10); ctx.fill();
-    ctx.strokeStyle = f.flash > 0 ? '#fff' : f.cor; ctx.lineWidth = 17; ctx.lineCap = 'round';
+    ctx.strokeStyle = f.flash > 0 ? '#fff' : defendendo ? '#d9c7a3' : f.cor; ctx.lineWidth = 17; ctx.lineCap = 'round';
     if (defendendo) {
       const breathe = Math.sin(agora / 110) * 3;
       ctx.beginPath(); ctx.moveTo(-23, -96); ctx.lineTo(8, -72 + breathe); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(23, -96); ctx.lineTo(-8, -72 - breathe); ctx.stroke();
+    } else if (f.y > 0) {
+      ctx.beginPath(); ctx.moveTo(-24, -96); ctx.lineTo(-38, -127); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(24, -96); ctx.lineTo(40, -125); ctx.stroke();
     } else {
       ctx.beginPath(); ctx.moveTo(-24, -96); ctx.lineTo(-42, -63); ctx.stroke();
       const alcance = impacto * (f.animacao === 'heavy' ? 93 : f.animacao === 'special' ? 76 : 78);
@@ -265,7 +291,7 @@
     ctx.fillStyle = '#191721'; ctx.fillRect(4, -131, 5, 3); ctx.fillRect(-10, -131, 5, 3);
     if (defendendo) {
       const pulsa = 1 + Math.sin(agora / 95) * .035;
-      ctx.save(); ctx.translate(8, -92); ctx.scale(pulsa, pulsa); ctx.strokeStyle = '#a9e9ff'; ctx.lineWidth = 5; ctx.globalAlpha = .8;
+      ctx.save(); ctx.translate(8, -92); ctx.scale(pulsa, pulsa); ctx.strokeStyle = '#d9c7a3'; ctx.lineWidth = 3; ctx.globalAlpha = .28;
       ctx.beginPath(); ctx.arc(0, 0, 58, -1.52, 1.45); ctx.stroke(); ctx.restore();
     }
     if (f.animacao === 'special') { ctx.strokeStyle = f.cor; ctx.lineWidth = 7; ctx.globalAlpha = .65; ctx.beginPath(); ctx.arc(74, -107, 42 + Math.sin(agora / 30) * 10, -1.5, 1.5); ctx.stroke(); }
@@ -305,13 +331,14 @@
   document.addEventListener('keydown', (e) => {
     if (['Space', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     if (e.repeat) return; teclas.add(e.code);
+    if (e.code === 'Space') pular();
     if (e.code === 'KeyJ') atacar('quick'); if (e.code === 'KeyK') atacar('heavy'); if (e.code === 'KeyL') atacar('special');
   });
   document.addEventListener('keyup', (e) => teclas.delete(e.code));
   window.addEventListener('blur', () => { teclas.clear(); toque.left = toque.right = toque.guard = false; });
   document.querySelectorAll('[data-action]').forEach((b) => {
     const action = b.dataset.action;
-    const start = (e) => { e.preventDefault(); if (b.setPointerCapture) b.setPointerCapture(e.pointerId); if (action === 'left' || action === 'right' || action === 'guard') toque[action] = true; else if (action === 'jump') { teclas.add('Space'); setTimeout(() => teclas.delete('Space'), 180); } else atacar(action); };
+    const start = (e) => { e.preventDefault(); if (b.setPointerCapture) b.setPointerCapture(e.pointerId); if (action === 'left' || action === 'right' || action === 'guard') toque[action] = true; else if (action === 'jump') pular(); else atacar(action); };
     const stop = () => { if (action in toque) toque[action] = false; };
     b.addEventListener('pointerdown', start); b.addEventListener('pointerup', stop); b.addEventListener('pointercancel', stop); b.addEventListener('lostpointercapture', stop);
   });
