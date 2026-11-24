@@ -1,206 +1,269 @@
 (async function () {
   'use strict';
-
   const config = window.JOGO_CONFIG || {};
   const $ = (id) => document.getElementById(id);
   const canvas = $('game');
   const ctx = canvas.getContext('2d');
-  const startScreen = $('start-screen');
-  const endScreen = $('end-screen');
-  const W = Regras.W;
-  const H = 600;
-  const FLOOR = Regras.FLOOR;
-  let nuvem = Regras.novaNuvem();
-  let portais = [];
-  let estado = 'ready';
-  let pontos = 0;
-  let recorde = 0;
-  let ultimoQuadro = 0;
-  let relogioPortal = 0;
-  let deslocamentoCeu = 0;
-  let salvando = false;
+  const W = 1280, H = 720, FLOOR = 590;
+  const R = Regras;
+  let largura = W, altura = H, escala = 1, offsetX = 0, offsetY = 0;
+  let modo = 'menu', vista = 'inicio', jogadorId = 'sol', rivalId = 'umbra', ultimoTreino = false;
+  let p1 = R.lutador(jogadorId, 'p1'), p2 = R.lutador(rivalId, 'p2');
+  let round = 60, ultimo = 0, ultimoCpu = 0, pontos = 0, recorde = 0;
+  let mensagens = [], particulas = [], shake = 0, salvamento = false;
+  const teclas = new Set(), toque = { left: false, right: false, guard: false };
+  const nomesVistas = ['inicio', 'treino', 'luta', 'personagens'];
 
-  document.title = config.nome || 'Desvia, Nuvem!';
-  $('titulo').textContent = config.nome || 'Desvia, Nuvem!';
+  document.title = config.nome || 'Ecos do Éter — Arena';
   if (config.cor) {
     document.documentElement.style.setProperty('--cor', config.cor);
-    document.querySelector('meta[name="theme-color"]').setAttribute('content', config.cor);
+    const theme = document.querySelector('meta[name="theme-color"]');
+    if (theme) theme.content = config.cor;
   }
-
   PlacarUI.montar($('painel-placar'));
   const progresso = await Placar.iniciar();
-  recorde = progresso.melhor;
+  recorde = progresso.melhor || 0;
   $('best-score').textContent = String(recorde);
-  Placar.aoMudar((p) => {
-    recorde = p.melhor;
-    $('best-score').textContent = String(recorde);
-  });
+  Placar.aoMudar((p) => { recorde = p.melhor; $('best-score').textContent = String(recorde); });
 
-  function redimensionar() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  function ajustar() {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
     const rect = canvas.getBoundingClientRect();
-    canvas.width = Math.round(rect.width * dpr);
-    canvas.height = Math.round(rect.height * dpr);
-    ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+    canvas.width = Math.round(rect.width * dpr); canvas.height = Math.round(rect.height * dpr);
+    escala = Math.min(rect.width / W, rect.height / H);
+    offsetX = (rect.width - W * escala) / 2; offsetY = (rect.height - H * escala) / 2;
+    ctx.setTransform(dpr * escala, 0, 0, dpr * escala, dpr * offsetX, dpr * offsetY);
   }
-
-  function mostrarFim() {
-    if (estado !== 'playing' || salvando) return;
-    estado = 'over';
-    salvando = true;
-    $('final-score').textContent = String(pontos);
-    $('save-message').textContent = 'Salvando recorde...';
-    endScreen.hidden = false;
-    Placar.registrarPartida(pontos).then(() => {
-      $('save-message').textContent = 'Pontuação salva neste aparelho.';
-    }).catch((erro) => {
-      $('save-message').textContent = 'Não foi possível salvar: ' + erro.message;
-    });
+  function elenco() {
+    const render = (container, picked, action) => {
+      const root = $(container); root.replaceChildren();
+      R.LUCHADORES.forEach((f) => {
+        const button = document.createElement('button'); button.type = 'button';
+        button.className = `fighter-card${f.id === picked ? ' selected' : ''}`;
+        button.style.setProperty('--fighter-color', f.cor); button.setAttribute('aria-pressed', String(f.id === picked));
+        const portrait = document.createElement('span'); portrait.className = 'portrait'; portrait.textContent = f.nome.split(' ').map((x) => x[0]).join('');
+        const name = document.createElement('strong'); name.textContent = f.nome;
+        const ability = document.createElement('small'); ability.textContent = `${f.estilo} · ${f.poder}`;
+        button.append(portrait, name, ability); button.addEventListener('click', () => action(f.id)); root.append(button);
+      });
+    };
+    render('player-roster', jogadorId, (id) => { jogadorId = id; elenco(); atualizarVersus(); });
+    render('rival-roster', rivalId, (id) => { rivalId = id; elenco(); atualizarVersus(); });
   }
-
-  function comecar() {
-    nuvem = Regras.novaNuvem();
-    portais = [];
-    pontos = 0;
-    relogioPortal = 0.75;
-    salvando = false;
-    estado = 'playing';
-    $('score').textContent = '0';
-    startScreen.hidden = true;
-    endScreen.hidden = true;
-    voar();
+  function cardVersus(element, id) {
+    const f = R.LUCHADORES.find((x) => x.id === id) || R.LUCHADORES[0];
+    const el = $(element); el.style.setProperty('--fighter-color', f.cor); el.replaceChildren();
+    const n = document.createElement('strong'); n.textContent = f.nome;
+    const p = document.createElement('small'); p.textContent = `${f.titulo} · ${f.poder}`; el.append(n, p);
   }
-
-  function voar() {
-    if (estado === 'playing') nuvem = Regras.voar(nuvem);
+  function atualizarVersus() { cardVersus('fight-player-card', jogadorId); cardVersus('fight-rival-card', rivalId); }
+  function mostrarVista(nome) {
+    vista = nomesVistas.includes(nome) ? nome : 'inicio'; modo = 'menu';
+    for (const key of nomesVistas) $(`view-${key}`).hidden = key !== vista;
+    $('result-screen').hidden = true; $('fight-hud').hidden = true; $('combat-controls').hidden = true; $('arena-caption').hidden = true;
+    document.querySelectorAll('.nav-button').forEach((b) => b.classList.toggle('active', b.dataset.view === vista));
   }
-
-  function atualizar(delta) {
-    if (estado !== 'playing') return;
-    const dt = Math.min(delta, 0.04);
-    deslocamentoCeu = (deslocamentoCeu + 16 * dt) % W;
-    nuvem = Regras.atualizarNuvem(nuvem, dt);
-    relogioPortal -= dt;
-    if (relogioPortal <= 0) {
-      portais.push(Regras.criarPortal(Math.random, pontos));
-      relogioPortal = 1.55;
+  function iniciar(treino) {
+    ultimoTreino = treino;
+    modo = treino ? 'treino' : 'luta'; p1 = R.lutador(jogadorId, 'p1'); p2 = R.lutador(rivalId, 'p2');
+    p1.x = 405; p2.x = 875; round = 60; pontos = 0; salvamento = false; particulas = []; mensagens = [];
+    p1.facing = 1; p2.facing = -1;
+    $('p1-name').textContent = p1.nome.toLocaleUpperCase('pt-BR'); $('p2-name').textContent = p2.nome.toLocaleUpperCase('pt-BR');
+    $('result-screen').hidden = true; for (const key of nomesVistas) $(`view-${key}`).hidden = true;
+    $('fight-hud').hidden = false; $('combat-controls').hidden = false; $('arena-caption').hidden = false;
+    $('arena-message').textContent = treino ? 'TREINO — PRATIQUE SEUS GOLPES' : 'ROUND 1 — LUTEM!';
+    atualizarHUD();
+  }
+  function sair() { modo = 'menu'; mostrarVista('inicio'); }
+  function atualizarHUD() {
+    $('p1-health').style.width = `${p1.vida}%`; $('p2-health').style.width = `${p2.vida}%`;
+    $('p1-energy').style.width = `${p1.etero}%`; $('p2-energy').style.width = `${p2.etero}%`;
+    $('p1-energy-label').textContent = `ÉTER ${Math.floor(p1.etero)}`; $('p2-energy-label').textContent = `ÉTER ${Math.floor(p2.etero)}`;
+    $('clock').textContent = String(Math.ceil(round));
+  }
+  function mensagem(texto, x, y, cor) { mensagens.push({ texto, x, y, cor: cor || '#fff', tempo: .9 }); }
+  function efeito(x, y, cor, quantidade) {
+    for (let i = 0; i < (quantidade || 14); i++) {
+      const a = Math.random() * Math.PI * 2, v = 80 + Math.random() * 340;
+      particulas.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, tempo: .35 + Math.random() * .4, max: .75, cor, r: 2 + Math.random() * 5 });
     }
-    const movidos = Regras.moverPortais(portais, dt, pontos);
-    portais = movidos.portais;
-    if (movidos.pontos !== pontos) {
-      pontos = movidos.pontos;
-      $('score').textContent = String(pontos);
-    }
-    if (Regras.terminou(nuvem, portais)) mostrarFim();
   }
-
-  function desenharNuvem(x, y, escala, opacidade) {
-    ctx.save();
-    ctx.globalAlpha = opacidade;
-    ctx.fillStyle = '#f6ffff';
-    ctx.beginPath();
-    ctx.ellipse(x, y, 27 * escala, 11 * escala, 0, 0, Math.PI * 2);
-    ctx.ellipse(x - 12 * escala, y - 5 * escala, 13 * escala, 13 * escala, 0, 0, Math.PI * 2);
-    ctx.ellipse(x + 2 * escala, y - 10 * escala, 16 * escala, 17 * escala, 0, 0, Math.PI * 2);
-    ctx.ellipse(x + 17 * escala, y - 4 * escala, 13 * escala, 13 * escala, 0, 0, Math.PI * 2);
-    ctx.fill();
+  function atacar(tipo) {
+    if (!['luta', 'treino'].includes(modo) || p1.recuperacao > 0 || p1.atordoado > 0) return;
+    p1.recuperacao = tipo === 'quick' ? .25 : tipo === 'heavy' ? .48 : .72;
+    p1.animacao = tipo === 'special' ? 'special' : 'attack';
+    let resultado;
+    if (tipo === 'quick') resultado = R.golpeRapido(p1, p2);
+    if (tipo === 'heavy') resultado = R.golpeForte(p1, p2);
+    if (tipo === 'special') resultado = R.especial(p1, p2);
+    p1 = resultado.atacante; p2 = resultado.defensor;
+    if (resultado.acertou) {
+      const cor = tipo === 'special' ? p1.cor : '#fff0c0';
+      efeito(p2.x, FLOOR - 100, cor, tipo === 'special' ? 34 : 14); shake = tipo === 'special' ? .26 : .1;
+      mensagem(resultado.bloqueado ? 'BLOQUEADO' : `-${resultado.causado}`, p2.x, FLOOR - 185, resultado.bloqueado ? '#8ed5ff' : cor);
+    } else mensagem(resultado.mensagem, p1.x, FLOOR - 175, '#fff');
+    if (tipo === 'special' && resultado.acertou) mensagem(`${p1.poder.toLocaleUpperCase('pt-BR')}!`, p1.x, FLOOR - 230, p1.cor);
+    checarFim(); atualizarHUD();
+  }
+  function movimento(dt) {
+    for (const f of [p1, p2]) {
+      f.recuperacao = Math.max(0, f.recuperacao - dt); f.atordoado = Math.max(0, f.atordoado - dt);
+      f.invulneravel = Math.max(0, f.invulneravel - dt); f.flash = Math.max(0, f.flash - dt);
+      f.facing = f === p1 ? (p1.x <= p2.x ? 1 : -1) : (p2.x <= p1.x ? 1 : -1);
+      f.guarda = f === p1 ? toque.guard || teclas.has('ShiftLeft') || teclas.has('ShiftRight') : false;
+    }
+    if (p1.atordoado <= 0 && !p1.guarda) {
+      const esq = teclas.has('KeyA') || teclas.has('ArrowLeft') || toque.left;
+      const dir = teclas.has('KeyD') || teclas.has('ArrowRight') || toque.right;
+      const corrida = (dir ? 1 : 0) - (esq ? 1 : 0);
+      if (corrida && p1.recuperacao <= 0) { p1.x += corrida * 325 * dt; p1.animacao = 'walk'; }
+      else if (p1.recuperacao <= 0) p1.animacao = p1.guarda ? 'block' : 'idle';
+    }
+    const dist = p2.x - p1.x, abs = Math.abs(dist);
+    if (p2.atordoado <= 0 && modo !== 'treino') {
+      if (abs > 145) { p2.x -= Math.sign(dist) * 210 * dt; if (p2.recuperacao <= 0) p2.animacao = 'walk'; }
+      else if (p2.recuperacao <= 0) { p2.guarda = Math.sin(performance.now() / 500) > .6; p2.animacao = p2.guarda ? 'block' : 'idle'; }
+      ultimoCpu += dt;
+      if (ultimoCpu > .56 + Math.random() * .48 && p2.recuperacao <= 0) {
+        ultimoCpu = 0;
+        if (abs < 135) {
+          if (p2.etero >= 45 && Math.random() < .24) cpuAtaque('special');
+          else if (Math.random() < .33) cpuAtaque('heavy'); else cpuAtaque('quick');
+        } else if (abs < 300 && p2.etero >= 40 && Math.random() < .4) cpuAtaque('special');
+      }
+    } else if (p2.recuperacao <= 0 && modo === 'treino') p2.animacao = 'idle';
+    p1.x = R.clamp(p1.x, 90, W - 110); p2.x = R.clamp(p2.x, 90, W - 110);
+    if (p2.x - p1.x < 95) { const mid = (p1.x + p2.x) / 2; p1.x = mid - 48; p2.x = mid + 48; }
+    for (const f of [p1, p2]) { f.etero = R.clamp(f.etero + (modo === 'treino' ? 15 : 2.2) * dt, 0, 100); f.y = Math.max(0, f.y - 390 * dt); }
+    if (teclas.has('Space') && !p1.noAr && p1.atordoado <= 0) { p1.noAr = true; p1.y = 115; p1.invulneravel = .2; }
+    if (!teclas.has('Space') && p1.noAr) p1.noAr = false;
+    if (modo === 'luta') { round = Math.max(0, round - dt); if (round === 0) fimPorTempo(); }
+    for (const part of particulas) { part.x += part.vx * dt; part.y += part.vy * dt; part.vy += 250 * dt; part.tempo -= dt; }
+    particulas = particulas.filter((p) => p.tempo > 0);
+    for (const m of mensagens) { m.tempo -= dt; m.y -= 24 * dt; }
+    mensagens = mensagens.filter((m) => m.tempo > 0);
+    shake = Math.max(0, shake - dt); atualizarHUD();
+  }
+  function cpuAtaque(tipo) {
+    if (p2.recuperacao > 0 || p2.atordoado > 0) return;
+    p2.guarda = false;
+    p2.recuperacao = tipo === 'quick' ? .32 : tipo === 'heavy' ? .56 : .8; p2.animacao = tipo === 'special' ? 'special' : 'attack';
+    let resultado;
+    if (tipo === 'special') resultado = R.especial(p2, p1);
+    else if (tipo === 'heavy') resultado = R.golpeForte(p2, p1);
+    else resultado = R.golpeRapido(p2, p1);
+    p2 = resultado.atacante; p1 = resultado.defensor;
+    if (resultado.acertou) { efeito(p1.x, FLOOR - 100, tipo === 'special' ? p2.cor : '#fff0c0', tipo === 'special' ? 30 : 12); mensagem(resultado.bloqueado ? 'DEFESA!' : `-${resultado.causado}`, p1.x, FLOOR - 180, resultado.bloqueado ? '#8ed5ff' : p2.cor); }
+    else if (tipo === 'special') mensagem(resultado.mensagem, p2.x, FLOOR - 170, p2.cor);
+    checarFim(); atualizarHUD();
+  }
+  function checarFim() {
+    if (!['luta', 'treino'].includes(modo)) return;
+    if (modo === 'treino' && p2.vida <= 0) { p2.vida = 100; p2.atordoado = 0; mensagem('ALVO DE TREINO REINICIADO', p2.x, FLOOR - 210, p2.cor); atualizarHUD(); return; }
+    const win = R.vencedor(p1, p2);
+    if (win) terminar(win);
+  }
+  function fimPorTempo() { terminar(p1.vida === p2.vida ? 'empate' : p1.vida > p2.vida ? 'p1' : 'p2'); }
+  function terminar(win) {
+    if (salvamento || modo === 'menu') return;
+    const treino = modo === 'treino'; modo = 'fim'; salvamento = true;
+    const venceu = win === 'p1'; const titulo = win === 'empate' ? 'Empate!' : venceu ? 'Vitória!' : 'Derrota';
+    $('result-title').textContent = titulo;
+    $('result-copy').textContent = treino ? 'Sessão de treino concluída.' : venceu ? `${p1.nome} venceu o duelo! +${1000 + Math.ceil(round) * 10} pontos.` : win === 'empate' ? 'Os dois guerreiros deram tudo de si.' : `${p2.nome} levou a melhor desta vez.`;
+    $('result-screen').hidden = false; $('combat-controls').hidden = true;
+    const score = treino ? 0 : venceu ? 1000 + Math.ceil(round) * 10 : 0;
+    if (score) Placar.registrarPartida(score, { personagem: p1.id, rival: p2.id, resultado: titulo }).catch(() => {});
+  }
+  function retangulo(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+  function fundo() {
+    const sky = ctx.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, '#101425'); sky.addColorStop(.55, '#222038'); sky.addColorStop(1, '#4b3156');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+    for (let i = 0; i < 58; i++) { const x = ((i * 197 + 31) % W), y = ((i * 127 + 19) % 390); ctx.globalAlpha = .22 + (i % 4) * .12; ctx.fillStyle = i % 6 ? '#fff' : '#d7b5ff'; ctx.fillRect(x, y, i % 5 === 0 ? 3 : 2, i % 5 === 0 ? 3 : 2); }
+    ctx.globalAlpha = 1;
+    // Lua e arcos de energia compõem um palco abstrato próprio.
+    const glow = ctx.createRadialGradient(640, 240, 20, 640, 240, 300); glow.addColorStop(0, '#9567cb45'); glow.addColorStop(1, '#9567cb00'); ctx.fillStyle = glow; ctx.fillRect(300, 0, 680, 580);
+    ctx.strokeStyle = '#c4a3e52d'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(640, 443, 475, 215, 0, Math.PI, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#11111c'; ctx.fillRect(0, FLOOR, W, H - FLOOR);
+    const floorGlow = ctx.createLinearGradient(0, FLOOR, 0, H); floorGlow.addColorStop(0, '#b185d526'); floorGlow.addColorStop(1, '#090a12'); ctx.fillStyle = floorGlow; ctx.fillRect(0, FLOOR, W, H - FLOOR);
+    ctx.strokeStyle = '#bea1db55'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, FLOOR); ctx.lineTo(W, FLOOR); ctx.stroke();
+    for (let x = -200; x < 1600; x += 130) { ctx.strokeStyle = '#d0a9e112'; ctx.beginPath(); ctx.moveTo(640, FLOOR); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = FLOOR + 35; y < H; y += 35) { ctx.strokeStyle = '#d0a9e110'; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  }
+  function guerreiro(f, agora) {
+    const x = f.x, base = FLOOR - f.y, andando = f.animacao === 'walk' ? Math.sin(agora / 85 + x) * 9 : 0;
+    ctx.save(); ctx.translate(x, base); ctx.scale(f.facing, 1);
+    // Manifestação de éter: silhueta geométrica translúcida atrás do combatente.
+    const aura = f.animacao === 'special' || f.etero > 60;
+    if (aura) {
+      ctx.globalAlpha = f.animacao === 'special' ? .9 : .48; ctx.fillStyle = f.cor;
+      ctx.shadowColor = f.cor; ctx.shadowBlur = f.animacao === 'special' ? 38 : 20;
+      ctx.beginPath(); ctx.moveTo(-53, -66); ctx.lineTo(-76, -133); ctx.lineTo(-48, -170); ctx.lineTo(-22, -144); ctx.lineTo(-4, -189); ctx.lineTo(22, -143); ctx.lineTo(52, -166); ctx.lineTo(62, -115); ctx.lineTo(43, -66); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.globalAlpha *= .55; ctx.beginPath(); ctx.arc(0, -133, 5, 0, 7); ctx.fill(); ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    }
+    // Sombra e corpo estilizado, sem retratar personagem de franquia.
+    ctx.globalAlpha = .48; ctx.fillStyle = '#05050a'; ctx.beginPath(); ctx.ellipse(0, 0, 52, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+    const balan = f.animacao === 'attack' || f.animacao === 'special' ? 7 : 0;
+    ctx.fillStyle = f.flash > 0 ? '#fff' : f.cor; ctx.shadowColor = f.cor; ctx.shadowBlur = f.animacao === 'special' ? 24 : 8;
+    // pernas
+    ctx.save(); ctx.translate(0, -42); ctx.rotate(andando / 100); retangulo(-24, -3, 20, 48, 8); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.translate(0, -42); ctx.rotate(-andando / 100); retangulo(5, -3, 20, 48, 8); ctx.fill(); ctx.restore();
+    // tronco
+    ctx.fillStyle = f.flash > 0 ? '#fff' : f.cor; retangulo(-31, -112, 62, 76, 15); ctx.fill();
+    ctx.fillStyle = '#211a2d'; retangulo(-20, -101, 40, 54, 10); ctx.fill();
+    // braços: avançam durante o golpe.
+    ctx.strokeStyle = f.flash > 0 ? '#fff' : f.cor; ctx.lineWidth = 17; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-24, -96); ctx.lineTo(-42, -63); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(24, -96); ctx.lineTo(45 + balan * (f.animacao === 'attack' ? 4 : 1), -78); ctx.lineTo(f.animacao === 'attack' ? 83 : 49, f.animacao === 'attack' ? -78 : -52); ctx.stroke();
+    ctx.fillStyle = '#f1d5c8'; ctx.beginPath(); ctx.arc(0, -128, 24, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = f.cor; ctx.beginPath(); ctx.arc(0, -138, 25, Math.PI, Math.PI * 2); ctx.lineTo(19, -129); ctx.lineTo(-20, -129); ctx.fill();
+    ctx.fillStyle = '#191721'; ctx.fillRect(4, -131, 5, 3); ctx.fillRect(-10, -131, 5, 3);
+    if (f.guarda || f.animacao === 'block') { ctx.strokeStyle = '#9bdfff'; ctx.lineWidth = 4; ctx.globalAlpha = .8; ctx.beginPath(); ctx.arc(8, -93, 58, -1.5, 1.5); ctx.stroke(); ctx.globalAlpha = 1; }
+    if (f.animacao === 'special') { ctx.strokeStyle = f.cor; ctx.lineWidth = 7; ctx.globalAlpha = .65; ctx.beginPath(); ctx.arc(74, -107, 42 + Math.sin(agora / 30) * 10, -1.5, 1.5); ctx.stroke(); ctx.globalAlpha = 1; }
     ctx.restore();
   }
-
-  function desenharPortal(portal) {
-    const topo = portal.center - portal.gap / 2;
-    const baixo = portal.center + portal.gap / 2;
-    ctx.save();
-    ctx.shadowColor = 'rgba(18,75,91,.2)';
-    ctx.shadowBlur = 10;
-    ctx.fillStyle = '#ed8350';
-    ctx.strokeStyle = '#bd593f';
-    ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.roundRect(portal.x, -18, portal.width, topo + 18, 12); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.roundRect(portal.x, baixo, portal.width, FLOOR - baixo + 18, 12); ctx.fill(); ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#ffc27b';
-    ctx.fillRect(portal.x + 10, Math.max(0, topo - 14), portal.width - 20, 7);
-    ctx.fillRect(portal.x + 10, baixo + 7, portal.width - 20, 7);
-    ctx.strokeStyle = 'rgba(255,236,193,.7)';
-    ctx.lineWidth = 2;
-    for (let y = 30; y < topo - 20; y += 34) {
-      ctx.beginPath(); ctx.moveTo(portal.x + 13, y); ctx.lineTo(portal.x + portal.width - 13, y); ctx.stroke();
-    }
-    for (let y = baixo + 30; y < FLOOR - 16; y += 34) {
-      ctx.beginPath(); ctx.moveTo(portal.x + 13, y); ctx.lineTo(portal.x + portal.width - 13, y); ctx.stroke();
+  function desenhar(agora) {
+    ctx.save(); if (shake > 0) ctx.translate((Math.random() - .5) * 18 * shake / .26, (Math.random() - .5) * 12 * shake / .26);
+    fundo();
+    if (['luta', 'treino', 'fim'].includes(modo)) {
+      guerreiro(p1, agora); guerreiro(p2, agora);
+      for (const part of particulas) { ctx.globalAlpha = Math.min(1, part.tempo / part.max); ctx.fillStyle = part.cor; ctx.beginPath(); ctx.arc(part.x, part.y, part.r, 0, Math.PI * 2); ctx.fill(); }
+      ctx.globalAlpha = 1;
+      for (const m of mensagens) { ctx.globalAlpha = Math.min(1, m.tempo * 1.6); ctx.fillStyle = m.cor; ctx.font = '900 22px system-ui'; ctx.textAlign = 'center'; ctx.shadowColor = '#000'; ctx.shadowBlur = 8; ctx.fillText(m.texto, m.x, m.y); ctx.shadowBlur = 0; }
+      ctx.globalAlpha = 1;
+    } else {
+      // Silhuetas decorativas mantêm a arena viva atrás dos menus.
+      const a = R.lutador(jogadorId, 'p1'), b = R.lutador(rivalId, 'p2'); a.x = 450; b.x = 840; a.facing = 1; b.facing = -1; a.etero = b.etero = 100;
+      guerreiro(a, agora); guerreiro(b, agora);
     }
     ctx.restore();
   }
-
-  function desenharJogador() {
-    ctx.save();
-    ctx.translate(nuvem.x, nuvem.y);
-    ctx.rotate(Math.max(-0.45, Math.min(0.8, nuvem.vy / 700)));
-    ctx.shadowColor = 'rgba(25,80,94,.25)';
-    ctx.shadowBlur = 8;
-    ctx.fillStyle = '#f8feff';
-    ctx.beginPath();
-    ctx.ellipse(-3, 1, 22, 13, 0, 0, Math.PI * 2);
-    ctx.arc(-13, -2, 9, 0, Math.PI * 2);
-    ctx.arc(-2, -8, 12, 0, Math.PI * 2);
-    ctx.arc(10, -2, 9, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#25647c';
-    ctx.beginPath(); ctx.arc(6, -2, 2.4, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
+  function frame(agora) {
+    const dt = ultimo ? Math.min((agora - ultimo) / 1000, .04) : 0; ultimo = agora;
+    if (['luta', 'treino'].includes(modo)) movimento(dt);
+    desenhar(agora); requestAnimationFrame(frame);
   }
-
-  function desenhar() {
-    const ceu = ctx.createLinearGradient(0, 0, 0, H);
-    ceu.addColorStop(0, '#75cfe0');
-    ceu.addColorStop(1, '#d2f4ee');
-    ctx.fillStyle = ceu;
-    ctx.fillRect(0, 0, W, H);
-    desenharNuvem(55 - deslocamentoCeu, 118, .8, .82);
-    desenharNuvem(250 - deslocamentoCeu * .55, 210, 1, .65);
-    desenharNuvem(395 - deslocamentoCeu, 360, .7, .72);
-
-    ctx.fillStyle = '#a6dbbd';
-    ctx.beginPath();
-    ctx.moveTo(0, 506); ctx.quadraticCurveTo(98, 445, 190, 506);
-    ctx.quadraticCurveTo(275, 447, 360, 495); ctx.lineTo(360, FLOOR); ctx.lineTo(0, FLOOR); ctx.fill();
-    portais.forEach(desenharPortal);
-    desenharJogador();
-    ctx.fillStyle = '#6cbd8d'; ctx.fillRect(0, FLOOR, W, 45);
-    ctx.fillStyle = '#c1edbd'; ctx.fillRect(0, FLOOR, W, 7);
-    ctx.fillStyle = 'rgba(40,132,105,.28)';
-    for (let x = -20; x < W + 20; x += 36) {
-      ctx.beginPath(); ctx.ellipse(x + (deslocamentoCeu % 36), FLOOR + 20, 9, 3, 0, 0, Math.PI * 2); ctx.fill();
-    }
-  }
-
-  function quadro(agora) {
-    if (!ultimoQuadro) ultimoQuadro = agora;
-    const delta = Math.min((agora - ultimoQuadro) / 1000, 0.04);
-    ultimoQuadro = agora;
-    atualizar(delta);
-    desenhar();
-    requestAnimationFrame(quadro);
-  }
-
-  function agir() {
-    if (estado === 'ready' || estado === 'over') comecar();
-    else voar();
-  }
-
-  $('start-button').addEventListener('click', comecar);
-  $('restart-button').addEventListener('click', comecar);
-  canvas.addEventListener('pointerdown', (evento) => { evento.preventDefault(); agir(); });
-  window.addEventListener('keydown', (evento) => {
-    if ((evento.code === 'Space' || evento.code === 'ArrowUp') && !evento.repeat) {
-      evento.preventDefault(); agir();
-    }
+  document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => mostrarVista(b.dataset.view)));
+  $('start-training').addEventListener('click', () => iniciar(true)); $('start-fight').addEventListener('click', () => iniciar(false));
+  $('rematch-button').addEventListener('click', () => iniciar(ultimoTreino));
+  $('exit-fight').addEventListener('click', sair);
+  $('fullscreen-button').addEventListener('click', async () => {
+    try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); else await document.exitFullscreen(); }
+    catch (_) { document.body.classList.toggle('fullscreen'); }
   });
-  window.addEventListener('resize', redimensionar);
-  if ('ResizeObserver' in window) new ResizeObserver(redimensionar).observe(canvas);
-  redimensionar();
-  desenhar();
-  requestAnimationFrame(quadro);
+  document.addEventListener('fullscreenchange', () => document.body.classList.toggle('fullscreen', !!document.fullscreenElement));
+  document.addEventListener('keydown', (e) => {
+    if (['Space', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+    if (e.repeat) return; teclas.add(e.code);
+    if (e.code === 'KeyJ') atacar('quick'); if (e.code === 'KeyK') atacar('heavy'); if (e.code === 'KeyL') atacar('special');
+  });
+  document.addEventListener('keyup', (e) => teclas.delete(e.code));
+  window.addEventListener('blur', () => { teclas.clear(); toque.left = toque.right = toque.guard = false; });
+  document.querySelectorAll('[data-action]').forEach((b) => {
+    const action = b.dataset.action;
+    const start = (e) => { e.preventDefault(); if (b.setPointerCapture) b.setPointerCapture(e.pointerId); if (action === 'left' || action === 'right' || action === 'guard') toque[action] = true; else if (action === 'jump') { teclas.add('Space'); setTimeout(() => teclas.delete('Space'), 180); } else atacar(action); };
+    const stop = () => { if (action in toque) toque[action] = false; };
+    b.addEventListener('pointerdown', start); b.addEventListener('pointerup', stop); b.addEventListener('pointercancel', stop); b.addEventListener('lostpointercapture', stop);
+  });
+  window.addEventListener('resize', ajustar); if ('ResizeObserver' in window) new ResizeObserver(ajustar).observe(canvas);
+  elenco(); atualizarVersus(); ajustar(); mostrarVista('inicio'); requestAnimationFrame(frame);
 })();

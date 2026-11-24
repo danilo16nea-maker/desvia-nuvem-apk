@@ -5,64 +5,78 @@ import { test } from 'node:test';
 const require = createRequire(import.meta.url);
 const Regras = require('../docs/jogo/regras.js');
 
-test('a nuvem começa no centro da faixa e voa com impulso para cima', () => {
-  const nuvem = Regras.novaNuvem();
-  assert.equal(nuvem.x, Regras.PLAYER_X);
-  assert.equal(nuvem.y, 300);
-  assert.equal(Regras.voar(nuvem).vy, Regras.IMPULSE);
+test('elenco possui quatro lutadores originais com identidades e cores próprias', () => {
+  assert.equal(Regras.LUCHADORES.length, 4);
+  assert.equal(new Set(Regras.LUCHADORES.map((x) => x.id)).size, 4);
+  assert.equal(new Set(Regras.LUCHADORES.map((x) => x.cor)).size, 4);
+  assert.ok(Regras.LUCHADORES.every((x) => x.poder && x.nome));
 });
 
-test('a gravidade aumenta a velocidade e move a nuvem para baixo', () => {
-  const nuvem = Regras.atualizarNuvem(Regras.novaNuvem(), 0.02);
-  assert.ok(nuvem.vy > 0);
-  assert.ok(nuvem.y > 300);
+test('lutador inicializa vida, éter, posição e lado corretamente', () => {
+  const a = Regras.lutador('lumen', 'p1');
+  const b = Regras.lutador('brasa', 'p2');
+  assert.equal(a.vida, 100); assert.equal(a.etero, 35); assert.equal(a.facing, 1);
+  assert.equal(b.facing, -1); assert.equal(b.id, 'brasa');
 });
 
-test('um delta muito grande é limitado para estabilizar a física', () => {
-  const longa = Regras.atualizarNuvem(Regras.novaNuvem(), 2);
-  const limitada = Regras.atualizarNuvem(Regras.novaNuvem(), 0.04);
-  assert.deepEqual(longa, limitada);
+test('ataque rápido causa dano e recarrega um pouco do éter', () => {
+  const a = Regras.lutador('sol', 'p1'), b = Regras.lutador('umbra', 'p2'); b.x = 490;
+  const golpe = Regras.golpeRapido(a, b);
+  assert.equal(golpe.acertou, true); assert.equal(golpe.causado, 8);
+  assert.equal(golpe.defensor.vida, 92); assert.equal(golpe.atacante.etero, 42);
 });
 
-test('portais usam o sorteio recebido e mantêm o vão dentro da tela', () => {
-  const baixo = Regras.criarPortal(() => 0, 0);
-  const alto = Regras.criarPortal(() => 0.999, 0);
-  assert.equal(baixo.x, Regras.W + 36);
-  assert.equal(baixo.gap, 174);
-  assert.ok(baixo.center - baixo.gap / 2 >= 82);
-  assert.ok(alto.center + alto.gap / 2 <= Regras.FLOOR - 24);
-  assert.notEqual(baixo.center, alto.center);
+test('defesa reduz o dano e não tira vida abaixo de zero', () => {
+  const a = Regras.lutador('brasa', 'p1'), b = { ...Regras.lutador('sol', 'p2'), guarda: true, vida: 3 };
+  const golpe = Regras.dano(a, b, 15);
+  assert.equal(golpe.bloqueado, true); assert.equal(golpe.defensor.vida, 0);
+  assert.equal(golpe.causado, 3);
 });
 
-test('o vão diminui até o limite e a velocidade não cresce sem limite', () => {
-  assert.equal(Regras.criarPortal(() => 0.5, 30).gap, 145);
-  assert.equal(Regras.velocidade(0), 172);
-  assert.equal(Regras.velocidade(1000), 285);
+test('golpe fora de alcance não causa dano', () => {
+  const a = Regras.lutador('sol', 'p1'), b = Regras.lutador('umbra', 'p2'); b.x = 900;
+  const golpe = Regras.golpeForte(a, b);
+  assert.equal(golpe.acertou, false); assert.equal(golpe.defensor.vida, 100);
 });
 
-test('a nuvem pode passar pelo centro sem colisão e bate nas paredes do portal', () => {
-  const portal = { x: 80, width: 68, center: 300, gap: 170 };
-  assert.equal(Regras.colidePortal({ x: 92, y: 300, radius: 15 }, portal), false);
-  assert.equal(Regras.colidePortal({ x: 92, y: 180, radius: 15 }, portal), true);
-  assert.equal(Regras.colidePortal({ x: 20, y: 180, radius: 15 }, portal), false);
+test('especial precisa de 35 de éter, gasta energia e pode romper guarda', () => {
+  const a = { ...Regras.lutador('sol', 'p1'), etero: 35 };
+  const b = { ...Regras.lutador('sol', 'p2'), x: 600, guarda: true };
+  const golpe = Regras.especial(a, b);
+  assert.equal(golpe.acertou, true); assert.equal(golpe.atacante.etero, 7);
+  assert.equal(golpe.defensor.vida, 73); assert.equal(golpe.bloqueado, false);
 });
 
-test('a nuvem perde ao tocar o topo ou o chão', () => {
-  assert.equal(Regras.colideBorda({ y: 14, radius: 15 }), true);
-  assert.equal(Regras.colideBorda({ y: 300, radius: 15 }), false);
-  assert.equal(Regras.colideBorda({ y: 540, radius: 15 }), true);
+test('especial insuficiente não muda o estado', () => {
+  const a = { ...Regras.lutador('sol', 'p1'), etero: 34 }, b = Regras.lutador('umbra', 'p2');
+  const golpe = Regras.especial(a, b);
+  assert.equal(golpe.acertou, false); assert.equal(golpe.atacante.etero, 34);
+  assert.equal(golpe.defensor.vida, 100);
 });
 
-test('um portal dá um ponto uma única vez quando fica para trás', () => {
-  const portal = { x: 20, width: 68, center: 300, gap: 170, counted: false };
-  const passo = Regras.moverPortais([portal], 0.4, 0);
-  assert.equal(passo.pontos, 1);
-  const repetido = Regras.moverPortais(passo.portais, 0.4, passo.pontos);
-  assert.equal(repetido.pontos, 1);
+test('especial fora de alcance consome energia mas não acerta', () => {
+  const a = { ...Regras.lutador('sol', 'p1'), etero: 50 }, b = Regras.lutador('umbra', 'p2'); b.x = 1000;
+  const golpe = Regras.especial(a, b);
+  assert.equal(golpe.acertou, false); assert.equal(golpe.atacante.etero, 15);
+  assert.equal(golpe.defensor.vida, 100);
 });
 
-test('o jogo termina ao bater na borda ou em um portal', () => {
-  const portal = { x: 80, width: 68, center: 300, gap: 170 };
-  assert.equal(Regras.terminou({ x: 92, y: 300, radius: 15 }, [portal]), false);
-  assert.equal(Regras.terminou({ x: 92, y: 180, radius: 15 }, [portal]), true);
+test('lutador invulnerável ignora golpes', () => {
+  const a = Regras.lutador('sol', 'p1'), b = { ...Regras.lutador('umbra', 'p2'), invulneravel: .2 };
+  const golpe = Regras.golpeRapido(a, b);
+  assert.equal(golpe.acertou, false); assert.equal(golpe.defensor.vida, 100);
+});
+
+test('vitória, derrota, empate e luta em andamento são detectados', () => {
+  const a = Regras.lutador('sol', 'p1'), b = Regras.lutador('umbra', 'p2');
+  assert.equal(Regras.vencedor(a, b), null);
+  assert.equal(Regras.vencedor({ ...a, vida: 0 }, b), 'p2');
+  assert.equal(Regras.vencedor(a, { ...b, vida: 0 }), 'p1');
+  assert.equal(Regras.vencedor({ ...a, vida: 0 }, { ...b, vida: 0 }), 'empate');
+});
+
+test('dano recebido e energia nunca ultrapassam seus limites', () => {
+  const a = { ...Regras.lutador('brasa', 'p1'), forca: 10 }, b = { ...Regras.lutador('sol', 'p2'), etero: 99 };
+  const golpe = Regras.dano(a, b, 1000);
+  assert.equal(golpe.defensor.vida, 0); assert.equal(golpe.defensor.etero, 100);
 });

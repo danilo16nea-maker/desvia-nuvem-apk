@@ -1,14 +1,14 @@
 {
-  "name": "Desvia, Nuvem!",
-  "short_name": "Desvia, Nuve",
-  "description": "Toque para voar com a nuvem e escapar dos portais no céu.",
+  "name": "Ecos do Eter Arena",
+  "short_name": "Ecos do Eter",
+  "description": "Arena de luta 2D em tela cheia com guerreiros originais, treino, golpes e poderes de éter.",
   "lang": "pt-BR",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#173F5F",
-  "theme_color": "#173F5F",
+  "orientation": "landscape",
+  "background_color": "#b68cff",
+  "theme_color": "#b68cff",
   "icons": [
     {
       "src": "icone-192.png",

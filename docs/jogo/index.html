@@ -3,11 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#173F5F">
-  <title>Desvia, Nuvem!</title>
+  <meta name="theme-color" content="#0b101c">
+  <title>Ecos do Éter — Arena</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icone-192.png">
-  <link rel="apple-touch-icon" href="icone-192.png">
   <link rel="stylesheet" href="placar.css">
   <link rel="stylesheet" href="estilo.css">
   <script src="config.js"></script>
@@ -20,35 +19,53 @@
 <body>
   <main class="app">
     <header class="topbar">
-      <div><p class="eyebrow">JOGO DE REFLEXO</p><h1 id="titulo">Desvia, Nuvem!</h1></div>
-      <p class="best">Recorde <strong id="best-score">0</strong></p>
+      <a class="brand" href="#inicio" aria-label="Ecos do Éter início"><span class="brand-mark">✦</span><span>ECOS <i>DO ÉTER</i></span></a>
+      <nav class="main-nav" aria-label="Menu principal">
+        <button class="nav-button active" data-view="inicio">Início</button>
+        <button class="nav-button" data-view="treino">Treino</button>
+        <button class="nav-button" data-view="luta">Luta</button>
+        <button class="nav-button" data-view="personagens">Personagens</button>
+      </nav>
+      <button id="fullscreen-button" class="fullscreen-button" aria-label="Ativar tela cheia">⛶ <span>Tela cheia</span></button>
     </header>
 
-    <section class="game-shell" aria-label="Área do jogo">
-      <canvas id="game" width="360" height="600" aria-label="Desvie dos portais tocando na tela ou pressionando espaço"></canvas>
-      <div class="hud" aria-live="polite"><span>Pontos</span><strong id="score">0</strong></div>
+    <section class="arena" aria-label="Arena de combate">
+      <canvas id="game" aria-label="Arena de luta 2D"></canvas>
+      <div class="fight-hud" id="fight-hud" hidden>
+        <div class="fighter-status left-status"><div class="name-line"><strong id="p1-name">LUTADOR</strong><span id="p1-energy-label">ÉTER 0</span></div><div class="bar"><i id="p1-health"></i></div><div class="energy-bar"><i id="p1-energy"></i></div></div>
+        <div class="round-clock" id="clock">60</div>
+        <div class="fighter-status right-status"><div class="name-line"><strong id="p2-name">RIVAL</strong><span id="p2-energy-label">ÉTER 0</span></div><div class="bar"><i id="p2-health"></i></div><div class="energy-bar"><i id="p2-energy"></i></div></div>
+      </div>
 
-      <section id="start-screen" class="overlay" aria-labelledby="start-title">
-        <div class="card">
-          <div class="cloud-icon" aria-hidden="true">☁️</div>
-          <h2 id="start-title">Leve a nuvem pelo céu!</h2>
-          <p>Toque na tela ou aperte <kbd>espaço</kbd> para voar. Passe pelo meio dos portais sem encostar.</p>
-          <button id="start-button" class="botao" type="button">Começar</button>
-        </div>
+      <section class="screen screen-home" id="view-inicio" aria-labelledby="home-title">
+        <div class="hero-copy"><p class="eyebrow">ARENA DE COMBATE 2D</p><h1 id="home-title">O poder desperta<br><em>dentro de você.</em></h1><p>Desafie guerreiros e suas manifestações de éter em duelos de estratégia, reflexo e coragem.</p><div class="hero-actions"><button class="primary-button" data-view="luta">⚔ Começar luta</button><button class="secondary-button" data-view="treino">Treinar golpes</button></div><p class="microcopy">Jogo original inspirado em batalhas de poderes espirituais. Personagens e habilidades próprios.</p></div>
+        <div class="hero-seal" aria-hidden="true"><div class="seal-ring"></div><span>✦</span><b>ÉTER</b></div>
       </section>
 
-      <section id="end-screen" class="overlay" hidden aria-labelledby="end-title">
-        <div class="card">
-          <div class="cloud-icon" aria-hidden="true">💫</div>
-          <h2 id="end-title">Fim de voo!</h2>
-          <p>Você passou por <strong id="final-score">0</strong> portais.</p>
-          <p id="save-message" role="status" aria-live="polite"></p>
-          <button id="restart-button" class="botao" type="button">Jogar de novo</button>
-        </div>
+      <section class="screen selection-screen" id="view-personagens" hidden aria-labelledby="characters-title">
+        <div class="section-heading"><p class="eyebrow">ESCOLHA SUA ESSÊNCIA</p><h2 id="characters-title">Personagens</h2><p>Cada guerreiro manifesta uma habilidade única.</p></div>
+        <div class="selection-columns"><div class="selection-group"><span class="side-label">JOGADOR 1</span><div id="player-roster" class="roster"></div></div><div class="selection-group rival-group"><span class="side-label">RIVAL</span><div id="rival-roster" class="roster"></div></div></div>
+        <button class="primary-button selection-start" data-view="luta">Entrar na arena →</button>
       </section>
+
+      <section class="screen mode-screen" id="view-treino" hidden aria-labelledby="training-title">
+        <div class="mode-card"><p class="eyebrow">SEM PRESSÃO, SÓ EVOLUÇÃO</p><h2 id="training-title">Treino</h2><p>Pratique seus ataques, defesa, esquiva e habilidade especial contra um rival de treino. Sua energia recarrega rapidamente.</p><ul class="move-list"><li><kbd>J</kbd> Golpe rápido</li><li><kbd>K</kbd> Golpe forte</li><li><kbd>L</kbd> Habilidade de éter</li><li><kbd>SHIFT</kbd> Defesa</li><li><kbd>ESPAÇO</kbd> Salto / esquiva</li></ul><button class="primary-button" id="start-training">Começar treino</button></div>
+      </section>
+
+      <section class="screen mode-screen" id="view-luta" hidden aria-labelledby="fight-title">
+        <div class="mode-card fight-card"><p class="eyebrow">UM DUELO DECIDE TUDO</p><h2 id="fight-title">Luta</h2><p>Enfrente o rival escolhido. Combine ataques, bloqueios e poderes no momento certo.</p><div class="versus"><div id="fight-player-card"></div><span>VS</span><div id="fight-rival-card"></div></div><button class="primary-button" id="start-fight">Lutar agora</button></div>
+      </section>
+
+      <section class="screen result-screen" id="result-screen" hidden aria-live="polite"><div class="result-card"><p class="eyebrow">FIM DO DUELO</p><h2 id="result-title">Vitória!</h2><p id="result-copy"></p><button class="primary-button" id="rematch-button">Revanche</button><button class="text-button" data-view="inicio">Voltar ao menu</button></div></section>
+
+      <div class="combat-controls" id="combat-controls" hidden aria-label="Controles de combate">
+        <div class="move-pad"><button data-action="left" aria-label="Mover para esquerda">◀</button><button data-action="right" aria-label="Mover para direita">▶</button><button data-action="jump" aria-label="Pular ou esquivar">↟</button></div>
+        <div class="action-pad"><button class="guard-control" data-action="guard">DEF</button><button class="quick-control" data-action="quick">RÁPIDO</button><button class="heavy-control" data-action="heavy">FORTE</button><button class="special-control" data-action="special">ÉTER</button></div>
+      </div>
+      <div class="arena-caption" id="arena-caption" hidden><span id="arena-message">Prepare-se!</span><button id="exit-fight">Sair da luta</button></div>
     </section>
 
-    <p class="hint">Toque, clique ou use <kbd>espaço</kbd> / <kbd>↑</kbd> para voar.</p>
+    <footer class="footer"><span>◈ <span id="best-score">0</span> vitórias registradas</span><span>J / K ataques · L éter · Shift defesa · Espaço esquiva</span></footer>
     <aside id="painel-placar" aria-label="Placar e recordes"></aside>
   </main>
 </body>

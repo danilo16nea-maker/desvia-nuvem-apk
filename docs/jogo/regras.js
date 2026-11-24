@@ -1,80 +1,73 @@
-/* Regras puras de Desvia, Nuvem! O sorteio é recebido para permitir testes repetíveis. */
+/* Regras puras da arena: lutadores originais, combate e poderes de éter. */
 (function (raiz, fabrica) {
   const api = fabrica();
   if (typeof module === 'object' && module.exports) module.exports = api;
   else raiz.Regras = api;
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
-
-  const W = 360;
-  const FLOOR = 555;
-  const PLAYER_X = 92;
-  const RADIUS = 15;
-  const GRAVITY = 1180;
-  const IMPULSE = -405;
-  const GATE_WIDTH = 68;
-
-  function novaNuvem() {
-    return { x: PLAYER_X, y: 300, vy: 0, radius: RADIUS };
+  const LUCHADORES = [
+    { id: 'sol', nome: 'Ayla Solis', titulo: 'Punho Solar', cor: '#ff9f54', poder: 'Impacto de Aurora', estilo: 'Equilibrada', forca: 1 },
+    { id: 'lumen', nome: 'Nilo Vesper', titulo: 'Eco Prismático', cor: '#61d8ec', poder: 'Passo entre instantes', estilo: 'Velocidade', forca: .88 },
+    { id: 'umbra', nome: 'Vera Umbra', titulo: 'Manto do Vazio', cor: '#bd86ff', poder: 'Campo de silêncio', estilo: 'Controle', forca: .95 },
+    { id: 'brasa', nome: 'Téo Brasa', titulo: 'Fera Ressonante', cor: '#ff647c', poder: 'Onda de ruptura', estilo: 'Potência', forca: 1.12 }
+  ];
+  const MAX_VIDA = 100;
+  const MAX_ETERO = 100;
+  const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+  function lutador(id, lado) {
+    const personagem = LUCHADORES.find((p) => p.id === id) || LUCHADORES[0];
+    return { id: personagem.id, nome: personagem.nome, cor: personagem.cor, poder: personagem.poder,
+      lado: lado || 'p1', x: lado === 'p2' ? 780 : 500, y: 0, vida: MAX_VIDA, etero: 35,
+      guarda: false, noAr: false, agachado: false, invulneravel: 0, atordoado: 0,
+      recuperacao: 0, flash: 0, animacao: 'idle', facing: lado === 'p2' ? -1 : 1, forca: personagem.forca,
+      especiais: 0 };
   }
-
-  function voar(nuvem) {
-    return { ...nuvem, vy: IMPULSE };
-  }
-
-  function atualizarNuvem(nuvem, delta) {
-    const dt = Math.max(0, Math.min(Number(delta) || 0, 0.04));
-    const vy = nuvem.vy + GRAVITY * dt;
-    return { ...nuvem, vy, y: nuvem.y + vy * dt };
-  }
-
-  function velocidade(pontos) {
-    return Math.min(285, 172 + Math.max(0, Number(pontos) || 0) * 3.2);
-  }
-
-  function criarPortal(sorteio, pontos) {
-    const aleatorio = typeof sorteio === 'function' ? sorteio : Math.random;
-    const gap = Math.max(145, 174 - Math.max(0, Number(pontos) || 0) * 1.2);
-    const margem = 82 + gap / 2;
-    const faixa = FLOOR - 24 - margem * 2;
-    const r = Math.max(0, Math.min(0.999999999, Number(aleatorio()) || 0));
-    return { x: W + 36, width: GATE_WIDTH, center: margem + r * faixa, gap, counted: false };
-  }
-
-  function moverPortais(portais, delta, pontos) {
-    const dt = Math.max(0, Math.min(Number(delta) || 0, 0.04));
-    const dx = velocidade(pontos) * dt;
-    let novosPontos = pontos;
-    const atualizados = [];
-    for (const portal of portais) {
-      const x = portal.x - dx;
-      let counted = portal.counted;
-      if (!counted && x + portal.width < PLAYER_X) {
-        counted = true;
-        novosPontos += 1;
-      }
-      if (x + portal.width >= -4) atualizados.push({ ...portal, x, counted });
+  function dano(atacante, defensor, base, opcoes) {
+    const opts = opcoes || {};
+    if (!atacante || !defensor || defensor.vida <= 0 || defensor.invulneravel > 0) {
+      return { atacante, defensor, causado: 0, bloqueado: false, acertou: false };
     }
-    return { portais: atualizados, pontos: novosPontos };
+    const valor = Math.max(0, Number(base) || 0) * (Number(atacante.forca) || 1);
+    const bloqueado = !!defensor.guarda && !opts.rompeGuarda;
+    const causado = Math.round(valor * (bloqueado ? .18 : 1));
+    const novoDefensor = { ...defensor, vida: clamp(defensor.vida - causado, 0, MAX_VIDA),
+      etero: clamp(defensor.etero + (bloqueado ? 5 : 10), 0, MAX_ETERO),
+      atordoado: bloqueado ? Math.max(defensor.atordoado, .06) : Math.max(defensor.atordoado, opts.stun || .24),
+      flash: .13, animacao: bloqueado ? 'block' : 'hit' };
+    const novoAtacante = { ...atacante, etero: clamp(atacante.etero + (bloqueado ? 4 : 7), 0, MAX_ETERO) };
+    return { atacante: novoAtacante, defensor: novoDefensor, causado, bloqueado, acertou: true };
   }
-
-  function colideBorda(nuvem) {
-    return nuvem.y - nuvem.radius < 0 || nuvem.y + nuvem.radius > FLOOR - 4;
+  function especial(atacante, defensor) {
+    const custo = atacante && atacante.id === 'brasa' ? 40 : 35;
+    if (!atacante || atacante.etero < custo || atacante.vida <= 0) {
+      return { atacante, defensor, acertou: false, causado: 0, mensagem: 'Éter insuficiente' };
+    }
+    let forcaEspecial = 23, alcance = 345, stun = .52;
+    const gasto = { ...atacante, etero: atacante.etero - custo, especiais: atacante.especiais + 1, animacao: 'special', recuperacao: .6 };
+    if (atacante.id === 'sol') forcaEspecial = 27; // Impacto de Aurora: explosão de alto dano.
+    if (atacante.id === 'lumen') { forcaEspecial = 18; gasto.x = defensor.x - Math.sign(defensor.x - atacante.x) * 100; gasto.invulneravel = .42; } // avança num salto entre instantes.
+    if (atacante.id === 'umbra') { forcaEspecial = 16; stun = .95; } // Campo de silêncio: mantém o rival suspenso.
+    if (atacante.id === 'brasa') { forcaEspecial = 20; alcance = 420; stun = .68; } // onda larga que rompe a guarda.
+    const distancia = Math.abs(atacante.x - defensor.x);
+    if (distancia > alcance) return { atacante: gasto, defensor, acertou: false, causado: 0, mensagem: 'O poder não alcançou!' };
+    const golpe = dano(gasto, defensor, forcaEspecial, { rompeGuarda: true, stun });
+    return { ...golpe, mensagem: golpe.acertou ? `${atacante.poder}!` : 'Poder bloqueado' };
   }
-
-  function colidePortal(nuvem, portal) {
-    const sobrepoeX = nuvem.x + nuvem.radius > portal.x && nuvem.x - nuvem.radius < portal.x + portal.width;
-    const topoVao = portal.center - portal.gap / 2;
-    const baixoVao = portal.center + portal.gap / 2;
-    const bateParede = nuvem.y - nuvem.radius < topoVao || nuvem.y + nuvem.radius > baixoVao;
-    return sobrepoeX && bateParede;
+  function golpeRapido(atacante, defensor) {
+    if (Math.abs(atacante.x - defensor.x) > 125) return { atacante, defensor, causado: 0, acertou: false, mensagem: 'Fora de alcance' };
+    const golpe = dano(atacante, defensor, 8, { stun: .16 });
+    return { ...golpe, mensagem: golpe.bloqueado ? 'Defesa firme!' : 'Golpe rápido!' };
   }
-
-  function terminou(nuvem, portais) {
-    return colideBorda(nuvem) || portais.some((portal) => colidePortal(nuvem, portal));
+  function golpeForte(atacante, defensor) {
+    if (Math.abs(atacante.x - defensor.x) > 150) return { atacante, defensor, causado: 0, acertou: false, mensagem: 'Fora de alcance' };
+    const golpe = dano(atacante, defensor, 15, { stun: .34 });
+    return { ...golpe, mensagem: golpe.bloqueado ? 'Defesa firme!' : 'Golpe forte!' };
   }
-
-  return { W, FLOOR, PLAYER_X, RADIUS, GRAVITY, IMPULSE, GATE_WIDTH,
-    novaNuvem, voar, atualizarNuvem, velocidade, criarPortal, moverPortais,
-    colideBorda, colidePortal, terminou };
+  function vencedor(a, b) {
+    if (a.vida <= 0 && b.vida <= 0) return 'empate';
+    if (a.vida <= 0) return 'p2';
+    if (b.vida <= 0) return 'p1';
+    return null;
+  }
+  return { LUCHADORES, MAX_VIDA, MAX_ETERO, clamp, lutador, dano, especial, golpeRapido, golpeForte, vencedor };
 });
