@@ -59,6 +59,7 @@
   function atualizarVersus() { cardVersus('fight-player-card', jogadorId); cardVersus('fight-rival-card', rivalId); }
   function mostrarVista(nome) {
     vista = nomesVistas.includes(nome) ? nome : 'inicio'; modo = 'menu';
+    $('painel-placar').hidden = false;
     for (const key of nomesVistas) $(`view-${key}`).hidden = key !== vista;
     $('result-screen').hidden = true; $('fight-hud').hidden = true; $('combat-controls').hidden = true; $('arena-caption').hidden = true;
     document.querySelectorAll('.nav-button').forEach((b) => b.classList.toggle('active', b.dataset.view === vista));
@@ -70,6 +71,7 @@
     p1.facing = 1; p2.facing = -1;
     $('p1-name').textContent = p1.nome.toLocaleUpperCase('pt-BR'); $('p2-name').textContent = p2.nome.toLocaleUpperCase('pt-BR');
     $('result-screen').hidden = true; for (const key of nomesVistas) $(`view-${key}`).hidden = true;
+    $('painel-placar').hidden = true;
     $('fight-hud').hidden = false; $('combat-controls').hidden = false; $('arena-caption').hidden = false;
     $('arena-message').textContent = treino ? 'TREINO — PRATIQUE SEUS GOLPES' : 'ROUND 1 — LUTEM!';
     atualizarHUD();
@@ -90,8 +92,9 @@
   }
   function atacar(tipo) {
     if (!['luta', 'treino'].includes(modo) || p1.recuperacao > 0 || p1.atordoado > 0) return;
-    p1.recuperacao = tipo === 'quick' ? .25 : tipo === 'heavy' ? .48 : .72;
-    p1.animacao = tipo === 'special' ? 'special' : 'attack';
+    p1.recuperacao = tipo === 'quick' ? .31 : tipo === 'heavy' ? .56 : .78;
+    p1.animacaoDuracao = p1.recuperacao;
+    p1.animacao = tipo;
     let resultado;
     if (tipo === 'quick') resultado = R.golpeRapido(p1, p2);
     if (tipo === 'heavy') resultado = R.golpeForte(p1, p2);
@@ -111,6 +114,7 @@
       f.invulneravel = Math.max(0, f.invulneravel - dt); f.flash = Math.max(0, f.flash - dt);
       f.facing = f === p1 ? (p1.x <= p2.x ? 1 : -1) : (p2.x <= p1.x ? 1 : -1);
       f.guarda = f === p1 ? toque.guard || teclas.has('ShiftLeft') || teclas.has('ShiftRight') : false;
+      if (f.guarda && f.atordoado <= 0 && f.recuperacao <= 0) f.animacao = 'block';
     }
     if (p1.atordoado <= 0 && !p1.guarda) {
       const esq = teclas.has('KeyA') || teclas.has('ArrowLeft') || toque.left;
@@ -147,7 +151,8 @@
   function cpuAtaque(tipo) {
     if (p2.recuperacao > 0 || p2.atordoado > 0) return;
     p2.guarda = false;
-    p2.recuperacao = tipo === 'quick' ? .32 : tipo === 'heavy' ? .56 : .8; p2.animacao = tipo === 'special' ? 'special' : 'attack';
+    p2.recuperacao = tipo === 'quick' ? .38 : tipo === 'heavy' ? .63 : .84;
+    p2.animacaoDuracao = p2.recuperacao; p2.animacao = tipo;
     let resultado;
     if (tipo === 'special') resultado = R.especial(p2, p1);
     else if (tipo === 'heavy') resultado = R.golpeForte(p2, p1);
@@ -189,37 +194,83 @@
     for (let x = -200; x < 1600; x += 130) { ctx.strokeStyle = '#d0a9e112'; ctx.beginPath(); ctx.moveTo(640, FLOOR); ctx.lineTo(x, H); ctx.stroke(); }
     for (let y = FLOOR + 35; y < H; y += 35) { ctx.strokeStyle = '#d0a9e110'; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
   }
-  function guerreiro(f, agora) {
-    const x = f.x, base = FLOOR - f.y, andando = f.animacao === 'walk' ? Math.sin(agora / 85 + x) * 9 : 0;
-    ctx.save(); ctx.translate(x, base); ctx.scale(f.facing, 1);
-    // Manifestação de éter: silhueta geométrica translúcida atrás do combatente.
-    const aura = f.animacao === 'special' || f.etero > 60;
-    if (aura) {
-      ctx.globalAlpha = f.animacao === 'special' ? .9 : .48; ctx.fillStyle = f.cor;
-      ctx.shadowColor = f.cor; ctx.shadowBlur = f.animacao === 'special' ? 38 : 20;
-      ctx.beginPath(); ctx.moveTo(-53, -66); ctx.lineTo(-76, -133); ctx.lineTo(-48, -170); ctx.lineTo(-22, -144); ctx.lineTo(-4, -189); ctx.lineTo(22, -143); ctx.lineTo(52, -166); ctx.lineTo(62, -115); ctx.lineTo(43, -66); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.globalAlpha *= .55; ctx.beginPath(); ctx.arc(0, -133, 5, 0, 7); ctx.fill(); ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  function manifestacao(f, agora, naFrente) {
+    const fase = f.animacaoDuracao ? 1 - R.clamp(f.recuperacao / f.animacaoDuracao, 0, 1) : 0;
+    const ativo = ['quick', 'heavy', 'special'].includes(f.animacao);
+    const defesa = f.guarda || f.animacao === 'block';
+    const balanco = Math.sin(agora / (defesa ? 80 : 190)) * (defesa ? 2 : 5);
+    const empurrao = ativo ? Math.sin(Math.PI * fase) * (f.animacao === 'heavy' ? 24 : f.animacao === 'special' ? 14 : 18) : 0;
+    const x = f.x + f.facing * (naFrente ? 78 + empurrao : -58);
+    const y = FLOOR - f.y - 70 + balanco;
+    ctx.save(); ctx.translate(x, y); ctx.scale(f.facing, 1);
+    ctx.globalAlpha = naFrente ? .88 : .53;
+    ctx.shadowColor = f.cor; ctx.shadowBlur = naFrente ? 26 : 16;
+    // Halo e silhueta espiritual própria, com braços animados conforme a ação.
+    ctx.strokeStyle = f.cor; ctx.lineWidth = naFrente ? 4 : 2;
+    ctx.beginPath(); ctx.ellipse(0, -39, 48 + Math.sin(agora / 90) * 3, 71, Math.sin(agora / 700) * .05, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = f.cor; ctx.beginPath(); ctx.moveTo(-36, -12); ctx.lineTo(-44, -77); ctx.lineTo(-28, -112); ctx.lineTo(0, -124); ctx.lineTo(29, -107); ctx.lineTo(43, -63); ctx.lineTo(34, -12); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#171224'; retangulo(-22, -82, 44, 55, 13); ctx.fill();
+    ctx.fillStyle = '#f2eaff'; ctx.beginPath(); ctx.ellipse(0, -111, 20, 22, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = f.cor; ctx.beginPath(); ctx.moveTo(-21, -112); ctx.lineTo(-16, -133); ctx.lineTo(14, -134); ctx.lineTo(22, -111); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillRect(5, -116, 5, 3); ctx.fillRect(-11, -116, 5, 3);
+    ctx.strokeStyle = f.cor; ctx.lineWidth = 13; ctx.lineCap = 'round';
+    if (defesa) {
+      const pulso = 1 + Math.sin(agora / 90) * .09;
+      ctx.save(); ctx.scale(pulso, pulso); ctx.strokeStyle = '#a9e9ff'; ctx.lineWidth = 11;
+      ctx.beginPath(); ctx.moveTo(-25, -83); ctx.lineTo(5, -61); ctx.lineTo(29, -91); ctx.stroke();
+      ctx.beginPath(); ctx.arc(31, -67, 48, -1.55, 1.35); ctx.stroke(); ctx.restore();
+      ctx.strokeStyle = f.cor; ctx.lineWidth = 13; ctx.beginPath(); ctx.moveTo(-23, -83); ctx.lineTo(6, -66); ctx.stroke();
+    } else if (ativo) {
+      const alcance = (f.animacao === 'heavy' ? 83 : f.animacao === 'special' ? 64 : 70) * Math.sin(Math.PI * fase);
+      ctx.beginPath(); ctx.moveTo(23, -82); ctx.lineTo(42 + alcance * .42, -79); ctx.lineTo(60 + alcance, -76); ctx.stroke();
+      if (fase > .12 && fase < .88) { ctx.globalAlpha *= .55; ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(66 + alcance, -76, 31, -.9, .75); ctx.stroke(); }
+    } else {
+      ctx.beginPath(); ctx.moveTo(-22, -82); ctx.lineTo(-39, -49); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(22, -82); ctx.lineTo(40, -54 + balanco); ctx.stroke();
     }
-    // Sombra e corpo estilizado, sem retratar personagem de franquia.
-    ctx.globalAlpha = .48; ctx.fillStyle = '#05050a'; ctx.beginPath(); ctx.ellipse(0, 0, 52, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
-    const balan = f.animacao === 'attack' || f.animacao === 'special' ? 7 : 0;
-    ctx.fillStyle = f.flash > 0 ? '#fff' : f.cor; ctx.shadowColor = f.cor; ctx.shadowBlur = f.animacao === 'special' ? 24 : 8;
-    // pernas
-    ctx.save(); ctx.translate(0, -42); ctx.rotate(andando / 100); retangulo(-24, -3, 20, 48, 8); ctx.fill(); ctx.restore();
-    ctx.save(); ctx.translate(0, -42); ctx.rotate(-andando / 100); retangulo(5, -3, 20, 48, 8); ctx.fill(); ctx.restore();
-    // tronco
+    ctx.restore();
+  }
+  function guerreiro(f, agora) {
+    const ativo = ['quick', 'heavy', 'special'].includes(f.animacao);
+    const defendendo = f.guarda || f.animacao === 'block';
+    const naFrente = ativo || defendendo;
+    const fase = f.animacaoDuracao ? 1 - R.clamp(f.recuperacao / f.animacaoDuracao, 0, 1) : 0;
+    const impacto = ativo ? Math.sin(Math.PI * fase) : 0;
+    const x = f.x + f.facing * impacto * (f.animacao === 'heavy' ? 31 : 20);
+    const base = FLOOR - f.y;
+    if (!naFrente) manifestacao(f, agora, false);
+    const andando = f.animacao === 'walk' ? Math.sin(agora / 85 + x) * 9 : 0;
+    ctx.save(); ctx.translate(x, base); ctx.scale(f.facing, 1);
+    ctx.globalAlpha = .48; ctx.fillStyle = '#05050a'; ctx.beginPath(); ctx.ellipse(-f.facing * impacto * 18, 0, 52, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+    ctx.fillStyle = f.flash > 0 ? '#fff' : f.cor; ctx.shadowColor = f.cor; ctx.shadowBlur = f.animacao === 'special' ? 28 : 9;
+    ctx.save(); ctx.translate(0, -42); ctx.rotate(andando / 100 - impacto * .16); retangulo(-24, -3, 20, 48, 8); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.translate(0, -42); ctx.rotate(-andando / 100 + impacto * .12); retangulo(5, -3, 20, 48, 8); ctx.fill(); ctx.restore();
     ctx.fillStyle = f.flash > 0 ? '#fff' : f.cor; retangulo(-31, -112, 62, 76, 15); ctx.fill();
     ctx.fillStyle = '#211a2d'; retangulo(-20, -101, 40, 54, 10); ctx.fill();
-    // braços: avançam durante o golpe.
     ctx.strokeStyle = f.flash > 0 ? '#fff' : f.cor; ctx.lineWidth = 17; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(-24, -96); ctx.lineTo(-42, -63); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(24, -96); ctx.lineTo(45 + balan * (f.animacao === 'attack' ? 4 : 1), -78); ctx.lineTo(f.animacao === 'attack' ? 83 : 49, f.animacao === 'attack' ? -78 : -52); ctx.stroke();
+    if (defendendo) {
+      const breathe = Math.sin(agora / 110) * 3;
+      ctx.beginPath(); ctx.moveTo(-23, -96); ctx.lineTo(8, -72 + breathe); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(23, -96); ctx.lineTo(-8, -72 - breathe); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.moveTo(-24, -96); ctx.lineTo(-42, -63); ctx.stroke();
+      const alcance = impacto * (f.animacao === 'heavy' ? 93 : f.animacao === 'special' ? 76 : 78);
+      const punhoY = f.animacao === 'heavy' ? -90 : -78;
+      ctx.beginPath(); ctx.moveTo(24, -96); ctx.lineTo(44 + alcance * .45, punhoY + 7); ctx.lineTo(53 + alcance, punhoY); ctx.stroke();
+      ctx.fillStyle = '#fff0dc'; ctx.beginPath(); ctx.arc(55 + alcance, punhoY, 11 + impacto * 3, 0, Math.PI * 2); ctx.fill();
+      if (impacto > .2) { ctx.globalAlpha = impacto * .65; ctx.strokeStyle = f.cor; ctx.lineWidth = f.animacao === 'heavy' ? 9 : 5; ctx.beginPath(); ctx.arc(50 + alcance, punhoY, f.animacao === 'heavy' ? 43 : 32, -.85, .8); ctx.stroke(); ctx.globalAlpha = 1; }
+    }
     ctx.fillStyle = '#f1d5c8'; ctx.beginPath(); ctx.arc(0, -128, 24, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = f.cor; ctx.beginPath(); ctx.arc(0, -138, 25, Math.PI, Math.PI * 2); ctx.lineTo(19, -129); ctx.lineTo(-20, -129); ctx.fill();
     ctx.fillStyle = '#191721'; ctx.fillRect(4, -131, 5, 3); ctx.fillRect(-10, -131, 5, 3);
-    if (f.guarda || f.animacao === 'block') { ctx.strokeStyle = '#9bdfff'; ctx.lineWidth = 4; ctx.globalAlpha = .8; ctx.beginPath(); ctx.arc(8, -93, 58, -1.5, 1.5); ctx.stroke(); ctx.globalAlpha = 1; }
-    if (f.animacao === 'special') { ctx.strokeStyle = f.cor; ctx.lineWidth = 7; ctx.globalAlpha = .65; ctx.beginPath(); ctx.arc(74, -107, 42 + Math.sin(agora / 30) * 10, -1.5, 1.5); ctx.stroke(); ctx.globalAlpha = 1; }
+    if (defendendo) {
+      const pulsa = 1 + Math.sin(agora / 95) * .035;
+      ctx.save(); ctx.translate(8, -92); ctx.scale(pulsa, pulsa); ctx.strokeStyle = '#a9e9ff'; ctx.lineWidth = 5; ctx.globalAlpha = .8;
+      ctx.beginPath(); ctx.arc(0, 0, 58, -1.52, 1.45); ctx.stroke(); ctx.restore();
+    }
+    if (f.animacao === 'special') { ctx.strokeStyle = f.cor; ctx.lineWidth = 7; ctx.globalAlpha = .65; ctx.beginPath(); ctx.arc(74, -107, 42 + Math.sin(agora / 30) * 10, -1.5, 1.5); ctx.stroke(); }
     ctx.restore();
+    if (naFrente) manifestacao(f, agora, true);
   }
   function desenhar(agora) {
     ctx.save(); if (shake > 0) ctx.translate((Math.random() - .5) * 18 * shake / .26, (Math.random() - .5) * 12 * shake / .26);

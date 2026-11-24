@@ -6,6 +6,7 @@
 - Menus: início, treino, luta e seleção de personagem para os dois lados.
 - Elenco original: Ayla Solis, Nilo Vesper, Vera Umbra e Téo Brasa, cada qual com cor e poder especial próprios.
 - Golpes rápidos e fortes, defesa, salto/esquiva, barra de vida e éter, rival controlado pelo jogo e placar local.
+- Animações atualizadas: manifestação atrás em repouso e à frente durante ataque ou defesa, escudo pulsante, golpes com avanço e rastro, além de botão de pulo no toque.
 - Código do projeto em `docs/jogo/`; regras de combate puras em `docs/jogo/regras.js`.
 
 ## Conferência
